@@ -1,0 +1,48 @@
+version: "4.1"
+name: air_monitor
+type: C51
+deviceName: null
+packDir: null
+srcDirs:
+  - src
+virtualFolder:
+  name: <virtual_root>
+  files: []
+  folders: []
+dependenceList: []
+outDir: build
+miscInfo:
+  uid: 831662ee7b801c5951d126a9eb0d193d
+targets:
+  Debug:
+    cppPreprocessAttrs:
+      defineList: []
+      incList:
+        - inc
+      libList: []
+    excludeList: []
+    settings:
+      debugger: unknown
+    toolchain: SDCC
+    toolchainConfigMap:
+      SDCC:
+        options:
+          version: 3
+          afterBuildTasks: []
+          asm-compiler: {}
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            language-c: c99
+          global:
+            device: mcs51
+            misc-controls: --iram-size 256 --xram-size 0 --code-size 8192 --stack-auto
+            optimize-type: speed
+          linker:
+            $mainFileName: main
+            output-format: hex
+    uploadConfigMap:
+      Custom:
+        bin: ""
+        commandLine: python ./tools/stcflash.py -p COM15 -hb 9600 "${hexFile}"
+        eraseChipCommand: ""
+    uploader: Custom

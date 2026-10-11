@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>8x8点阵字模双向工具｜框选矩形批量翻转</title>
+<style>
+*{box-sizing:border-box;font-family:system-ui,monospace}
+body{padding:20px;background:#f5f5f5;margin:0}
+.wrap{max-width:900px}
+#inputArea{width:100%;height:80px;padding:8px;font-family:monospace;font-size:14px}
+#preview{margin-top:12px;border:1px solid #aaa;background:#fff;image-rendering:pixelated;cursor:crosshair}
+#info{margin:8px 0;color:#444}
+.charSection{margin-top:30px;padding-top:20px;border-top:1px solid #ccc}
+#charInput{width:100px;padding:6px;font-size:18px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h3>8×8点阵双向字模工具</h3>
+  <p>输入C字模数组，预览自动更新；鼠标拖拽拉出矩形框，松开后框内所有格子一次性翻转</p>
+  <textarea id="inputArea">{0x3E,0x51,0x49,0x45,0x45,0x49,0x51,0x3E};</textarea>
+  <div id="info"></div>
+  <!-- 单点16px，8格 => 总画布 128×128 -->
+  <canvas id="preview" width="128" height="128"></canvas>
+
+  <div class="charSection">
+    <h4>字符转8×8字模</h4>
+    <p>输入单个字符（英文/数字），点击【生成字模】，自动刷新点阵预览</p>
+    <input id="charInput" maxlength="1" placeholder="A">
+    <button onclick="charToFont()">生成字模</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('preview');
+const ctx = canvas.getContext('2d');
+const infoEl = document.getElementById('info');
+const inputArea = document.getElementById('inputArea');
+const dotSize = 16; // 每个点阵点 16px*16px，总画布 128x128
+
+// 8x8点阵缓存：画布上显示的点阵（旋转后的画面）
+let grid = Array.from({length:8}, ()=>Array(8).fill(false));
+let dragStart = null; // {px,py}
+let dragCurrent = null;
+
+// ========== 字模解析 → 画布点阵，渲染 ==========
+function parseAndRender(){
+  const txt = inputArea.value;
+  const matchList = txt.match(/0x[0-9A-Fa-f]+/g);
+  if(!matchList || matchList.length!==8){
+    infoEl.textContent = "错误：必须恰好8个字节";
+    grid = Array.from({length:8}, ()=>Array(8).fill(false));
+    drawCanvas();
+    return;
+  }
+  infoEl.textContent = "解析成功";
+  const bytes = matchList.map(s=>parseInt(s,16));
+
+  // 将原始字节数组转为画布显示点阵（逆时针旋转90°）
+  for(let y=0;y<8;y++){
+    const byte = bytes[y];
+    for(let x=0;x<8;x++){
+      const bitMask = 1 << (7 - x);
+      const bitOn = !!(byte & bitMask);
+      // 正向变换：原始(x,y) → 画布坐标 nx, ny
+      const nx = y;
+      const ny = 7 - x;
+      grid[ny][nx] = bitOn;
+    }
+  }
+  drawCanvas();
+}
+
+// 绘制画布，使用grid数组 + 可选的拖拽预览框
+function drawCanvas(){
+  ctx.clearRect(0,0,128,128);
+  for(let y=0;y<8;y++){
+    for(let x=0;x<8;x++){
+      ctx.fillStyle = grid[y][x] ? "#222" : "#fff";
+      ctx.fillRect(x*dotSize, y*dotSize, dotSize, dotSize);
+      ctx.strokeStyle="#eee";
+      ctx.strokeRect(x*dotSize, y*dotSize, dotSize, dotSize);
+    }
+  }
+  // 绘制拖拽虚线预览矩形
+  if(dragStart && dragCurrent){
+    ctx.save();
+    ctx.strokeStyle="#f33";
+    ctx.setLineDash([4,2]);
+    const sx = Math.min(dragStart.px, dragCurrent.px)*dotSize;
+    const sy = Math.min(dragStart.py, dragCurrent.py)*dotSize;
+    const ex = (Math.max(dragStart.px, dragCurrent.px)+1)*dotSize;
+    const ey = (Math.max(dragStart.py, dragCurrent.py)+1)*dotSize;
+    ctx.strokeRect(sx, sy, ex-sx, ey-sy);
+    ctx.restore();
+  }
+}
+
+// 从鼠标事件得到点阵格子坐标{px,py}
+function getGridPos(e){
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const px = Math.floor(mx / dotSize);
+  const py = Math.floor(my / dotSize);
+  return {px,py};
+}
+
+canvas.addEventListener('mousedown', (e)=>{
+  const p = getGridPos(e);
+  if(p.px<0||p.px>=8||p.py<0||p.py>=8) return;
+  dragStart = p;
+  dragCurrent = p;
+  drawCanvas();
+});
+
+canvas.addEventListener('mousemove', (e)=>{
+  if(!dragStart) return;
+  dragCurrent = getGridPos(e);
+  drawCanvas();
+});
+
+canvas.addEventListener('mouseup', (e)=>{
+  if(!dragStart) {
+    return;
+  }
+  const pEnd = getGridPos(e);
+  const x1 = Math.max(0, Math.min(dragStart.px, pEnd.px));
+  const x2 = Math.min(7, Math.max(dragStart.px, pEnd.px));
+  const y1 = Math.max(0, Math.min(dragStart.py, pEnd.py));
+  const y2 = Math.min(7, Math.max(dragStart.py, pEnd.py));
+
+  // 矩形范围内所有格子一次性取反
+  for(let y=y1;y<=y2;y++){
+    for(let x=x1;x<=x2;x++){
+      grid[y][x] = !grid[y][x];
+    }
+  }
+  dragStart = null;
+  dragCurrent = null;
+  drawCanvas();
+  generateCodeFromGrid();
+  infoEl.textContent = "框选完成，批量翻转点阵";
+});
+
+canvas.addEventListener('mouseleave', ()=>{
+  dragStart = null;
+  dragCurrent = null;
+  drawCanvas();
+});
+
+function generateCodeFromGrid(){
+  const bytes = new Array(8).fill(0);
+  for(let y=0;y<8;y++){
+    for(let x=0;x<8;x++){
+      // 逆变换：画布坐标(x,y) → 原始坐标 origX, origY
+      // 正向：nx = origY, ny = 7-origX
+      // 求解：origY = x; origX = 7 - y
+      const origY = x;
+      const origX = 7 - y;
+      if(grid[y][x]){
+        const mask = 1 << (7 - origX);
+        bytes[origY] |= mask;
+      }
+    }
+  }
+  const str = "{" + bytes.map(v=>"0x"+v.toString(16).toUpperCase().padStart(2,'0')).join(',') + "};";
+  // 更新输入框，注意：不要触发input事件死循环
+  inputArea.value = str;
+}
+
+// ========== 修复后的字符生成8x8点阵字模 ==========
+function charToFont(){
+  const char = document.getElementById('charInput').value.slice(0,1);
+  if(!char){
+    infoEl.textContent = "请输入单个字符";
+    return;
+  }
+  // 使用大尺寸离屏画布绘制，关闭抗锯齿，再缩采样到8×8
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = 64;
+  offCanvas.height = 64;
+  const offCtx = offCanvas.getContext('2d');
+  offCtx.imageSmoothingEnabled = false;
+  offCtx.clearRect(0,0,64,64);
+  offCtx.fillStyle="#000";
+  // 使用像素等宽字体，字号52，在64画布居中
+  offCtx.font="52px monospace";
+  offCtx.textAlign="center";
+  offCtx.textBaseline="middle";
+  offCtx.fillText(char,32,32);
+
+  // 采样缩放到8×8点阵
+  for(let y=0;y<8;y++){
+    for(let x=0;x<8;x++){
+      // 取64画布中对应区块中心像素
+      const sampleX = x*8 + 4;
+      const sampleY = y*8 + 4;
+      const imgData = offCtx.getImageData(sampleX, sampleY,1,1);
+      grid[y][x] = imgData.data[3] > 128;
+    }
+  }
+  drawCanvas();
+  generateCodeFromGrid();
+  infoEl.textContent = `字符「${char}」已生成字模`;
+}
+
+// 输入框内容变化自动渲染
+inputArea.addEventListener('input', parseAndRender);
+
+// 页面初始化
+parseAndRender();
+</script>
+</body>
+</html>
