@@ -1,0 +1,2 @@
+pyserial>=3.5
+prometheus-client>=0.20.0
