@@ -402,6 +402,7 @@ enum sensor_parse_result
     SENSOR_PARSE_READY = 1,
     SENSOR_PARSE_REJECT1 = 2,
     SENSOR_PARSE_REJECT2 = 3,
+    SENSOR_PARSE_REJECT3 = 4,
 };
 
 static unsigned char frm[17];
@@ -415,6 +416,30 @@ enum sensor_frame_state
 static volatile enum sensor_frame_state sensor_frame_status = SENSOR_FRAME_IDLE;
 static SensorData sensor_latest;
 static SensorData sensor_work;
+
+static unsigned char sensor_data_plausible(const SensorData *d)
+{
+    // 过滤偶发“合法校验但业务值异常”的帧：
+    // 例如 co2/ch2o/temp/humi 同时接近 0，但 pm 仍有值。
+    if (d->co2 == 0u && d->ch2o == 0u && d->temp10 == 0 && d->humi10 <= 2u)
+    {
+        return 0;
+    }
+
+    // 常规物理范围过滤，避免串口错位后偶发伪帧通过校验。
+    if (d->co2 > 10000u)
+        return 0;
+    if (d->ch2o > 5000u || d->tvoc > 5000u)
+        return 0;
+    if (d->pm25 > 2000u || d->pm10 > 2000u)
+        return 0;
+    if (d->temp10 < -400 || d->temp10 > 850)
+        return 0;
+    if (d->humi10 > 1000u)
+        return 0;
+
+    return 1;
+}
 
 enum sensor_parse_result sensor_parse_byte(unsigned char b, SensorData *d)
 {
@@ -453,7 +478,7 @@ enum sensor_parse_result sensor_parse_byte(unsigned char b, SensorData *d)
     sum = 0;
     for (i = 0; i < 16; i++)
         sum += frm[i];
-    if ((sum & 0xFFu) != frm[16])
+    if ((sum & 0xFFu) != frm[16])                                         
     {
         return SENSOR_PARSE_REJECT2;
     }
@@ -470,6 +495,12 @@ enum sensor_parse_result sensor_parse_byte(unsigned char b, SensorData *d)
     t10 = (unsigned int)t_int * 10u + (unsigned int)t_dec;
     d->temp10 = (frm[12] & 0x80) ? -(signed int)t10 : (signed int)t10;
     d->humi10 = (unsigned int)frm[14] * 10u + (unsigned int)frm[15];
+
+    if (!sensor_data_plausible(d))
+    {
+        return SENSOR_PARSE_REJECT3;
+    }
+
     return SENSOR_PARSE_READY;
 }
 
@@ -508,6 +539,7 @@ void uart_isr(void) __interrupt(4)
             break;
         case SENSOR_PARSE_REJECT1:
         case SENSOR_PARSE_REJECT2:
+        case SENSOR_PARSE_REJECT3:
         case SENSOR_PARSE_NOTREADY:
             break;
         }
